@@ -5,7 +5,7 @@ import datetime
 import time
 
 #precision coefficient ε*h(x)
-epsilon = 100
+epsilon = 75
 
 
 parse_time = lambda time: datetime.datetime.strptime(time, "%Y-%m-%d-%H:%M:%S")
@@ -113,9 +113,6 @@ def dmv(dmvVisitors):
             cameFrom[child] = current[1]
             gScore[child.id] = temp
             count += 1
-            if count % 1000 == 0:
-                print(len(opened), str(current[1].index), str(current[1]), [datetime.datetime.isoformat(q) for q in current[1].qs])
-                count = 1
             
 visitors = []
 with open(sys.argv[1]) as csvfile:
@@ -130,7 +127,9 @@ visitors.sort(key=lambda x : x['Time_Arrival'])
 
 best = dmv(visitors)
 
+with open('result.csv', 'w') as file:
+    file.write("Customer_ID,Counter_ID,Start_Time,End_Time\n")
+    for row in best:
+        file.write(str(row)+"\n")
+
 print((best[-1].end_time - best[0].start_time).total_seconds() / 60)
-#print (len(best), len(visitors))
-#missing = list(set([str(x['Customer_ID']) for x in visitors])^set([str(x.id) for x in best]))
-#print([(i, visitors[i]) for i in range(len(visitors)) if visitors[i]['Customer_ID'] in missing])
