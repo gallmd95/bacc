@@ -2,62 +2,135 @@ import csv
 from heapq import *
 import sys
 import datetime
+import time
+
+#precision coefficient ε*h(x)
+epsilon = 100
+
+
+parse_time = lambda time: datetime.datetime.strptime(time, "%Y-%m-%d-%H:%M:%S")
+priorities = {'low':['low','medium','high'], 'medium':['medium','high'], 'high':['high']}
+get_options = lambda priority: priorities[priority]
+choices = {"low":0,"medium":1,"high":2}
+get_choice = lambda choice: choices[choice]
 
 class Node (object):
-    def __init__(self, id, d, i, qs):
+    def __init__(self, id, d, i, qs, children, start_time, end_time):
         self.id=id
         self.decision=d
         self.index=i
         self.qs=qs
+        self.children=children
+        self.start_time = start_time
+        self.end_time = end_time
+    def __str__(self):
+        return  self.id+","+self.decision+","+datetime.datetime.isoformat(self.start_time)+","+datetime.datetime.isoformat(self.end_time)
+    def __lt__(self, other):
+        return self.index < other.index
+    def __gt__(self, other):
+        return self.index > other.index
 
 def get_path(cameFrom, current):
-    return current
+    path = []
+    while current in cameFrom:
+        if current.id == '_start':
+            continue
+        current = cameFrom[current]
+        path = [current] + path
+    return path[1:]
 
 def dist(current, child):
-    return 0
+    return (max(child.qs) - max(current.qs)).total_seconds() / 60
 
-def dmv(visitors):
+def update_qs(option, qs, visitor):
+    choice = get_choice(option)
+    return [qs[i] if choice!=i else (max(qs[i], visitor['Time_Arrival'])+ datetime.timedelta(minutes=int(visitor['Processing_Time'])))
+        for i in range(3)]    
+
+def get_children(node, dmvVisitors):  
+    nextVisitors = []
+    if len(node.children) > 0:
+        nextVisitors = node.children
+    else:
+        start = node.index + 1
+        while start < len(dmvVisitors)-1 and dmvVisitors[node.index]['Time_Arrival'] == dmvVisitors[start]['Time_Arrival']:
+            start += 1
+        if start >= len(dmvVisitors):
+            return [Node("_end", "end", len(dmvVisitors), [max(node.qs) for x in range(3)],[],max(node.qs),max(node.qs))]
+        finish = start
+        while finish < len(dmvVisitors)-1 and dmvVisitors[finish]['Time_Arrival'] == dmvVisitors[finish+1]['Time_Arrival']:
+            finish += 1
+        finish += 1
+        nextVisitors = dmvVisitors[start:finish]
+        tempIndex = start
+        for each in nextVisitors:
+            each['Index'] = tempIndex
+            tempIndex+=1
+    newNodes = []
+    for visitor in nextVisitors:
+        children = [child for child in nextVisitors if child['Customer_ID']!=visitor['Customer_ID']]
+        options = get_options(visitor['Priority'])
+        for option in options:
+            start_time = max(node.qs[get_choice(option)], visitor['Time_Arrival'])
+            end_time = max(node.qs[get_choice(option)], visitor['Time_Arrival'])+ datetime.timedelta(minutes=int(visitor['Processing_Time']))
+            newNodes.append(
+                Node(visitor['Customer_ID'], 
+                    option, 
+                    visitor['Index'],
+                    update_qs(option, node.qs, visitor),  
+                    children,
+                    start_time,
+                    end_time
+                    )
+            )
+    return newNodes
+
+def dmv(dmvVisitors):
+    l = len(dmvVisitors)
+    count=0
     opened=[]
     closed = set()
     cameFrom = {}
     gScore = {}
-    fScore = {}
-    start=Node('_start', None,-1, [visitors[0].arrival for x in range(3)])
+    start=Node('_start', "low",-1, [ dmvVisitors[0]['Time_Arrival'] for x in range(3)],[],dmvVisitors[0]['Time_Arrival'],dmvVisitors[0]['Time_Arrival'])
     gScore[start.id]=0
-    heappush(opened, (len(visitors), start))
+    heappush(opened, (len(dmvVisitors), start))
 
     while len(opened)>0:
         current = heappop(opened)
-        if current.id == 'end':
-            return get_path(cameFrom, current)
-        closed.add(current)
-        #define children as the possible decisions
-
-        for each in children:
-            if each in closed:
+        if current[1].id == '_end':
+            return get_path(cameFrom, current[1])
+        closed.add(current[1])
+        children = get_children(current[1], dmvVisitors)
+        for child in children:
+            if child in closed:
                 continue
-            #define dist as adding time to finish
-            temp = gScore[current]+dist(current,each)
-            if each not in opened:
-                heappush(opened, (temp + each.index, each))
-            elif temp >= gScore[each.id]:
+            temp = gScore[current[1].id]+dist(current[1],child)
+            if child not in opened:
+                heappush(opened, (temp + epsilon*(l-child.index), child))
+            elif temp >= gScore[child.id]:
                 continue
-            #they will never be in opened already but the branches are isolated i think. nodes never share children
-            cameFrom[each.id] = current
-            gScore[each.id] = temp
-
-
-
-parse_time = lambda time: datetime.datetime.strptime(time, "%Y-%m-%d-%H:%M:%S").time()
-
+            cameFrom[child] = current[1]
+            gScore[child.id] = temp
+            count += 1
+            if count % 1000 == 0:
+                print(len(opened), str(current[1].index), str(current[1]), [datetime.datetime.isoformat(q) for q in current[1].qs])
+                count = 1
+            
 visitors = []
 with open(sys.argv[1]) as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         visitors.append(dict(row))
 
-visitors.sort(key=lambda x :  parse_time(x['Time_Arrival']))
-
 for each in visitors:
-    print(each)
-#there are dup times
+    each['Time_Arrival'] = parse_time(each['Time_Arrival'])
+
+visitors.sort(key=lambda x : x['Time_Arrival'])
+
+best = dmv(visitors)
+
+print((best[-1].end_time - best[0].start_time).total_seconds() / 60)
+#print (len(best), len(visitors))
+#missing = list(set([str(x['Customer_ID']) for x in visitors])^set([str(x.id) for x in best]))
+#print([(i, visitors[i]) for i in range(len(visitors)) if visitors[i]['Customer_ID'] in missing])
