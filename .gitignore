@@ -1,2 +1,3 @@
 venv/
-meta_data.csv
+*.csv
+.vscode/
