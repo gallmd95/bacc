@@ -31,13 +31,14 @@ class Node (object):
         return self.index > other.index
 
 def get_path(cameFrom, current):
-    path = []
+    path = [current]
+    end = current 
     while current in cameFrom:
-        if current.id == '_start':
-            continue
         current = cameFrom[current]
         path = [current] + path
-    return path[1:]
+    start = current
+    print((max(end.qs) - max(start.qs)).total_seconds() / 60)
+    return path[1:][:-1]
 
 def dist(current, child):
     return (max(child.qs) - max(current.qs)).total_seconds() / 60
